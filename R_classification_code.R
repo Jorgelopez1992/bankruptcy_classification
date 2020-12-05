@@ -27,7 +27,7 @@ p        =    ncol(X)
 n.train        =     floor(0.9*n)
 n.test         =     n-n.train
 
-M              =     10   #total loops 
+M              =     2   #total loops 
 num_thrs       =     100  #Number of threshholds for classification for logistic regression (0.01,0.02 etc.)
 
 
@@ -40,15 +40,24 @@ las.cv.time<-c(rep(0,M))
 las.time<-c(rep(0,M)) 
 rf.time<-c(rep(0,M))
 
+elas.cv.time<-c(rep(0,M)) 
+elas.time<-c(rep(0,M)) 
+rid.cv.time<-c(rep(0,M))
+rid.time<-c(rep(0,M)) 
+las.cv.time<-c(rep(0,M))
+las.time<-c(rep(0,M)) 
+rf.time<-c(rep(0,M))
+
+
 #Vectors to store AUC
-elas.train.auc <- c(rep(0,M))
-elas.test.auc <-c(rep(0,M))
-las.train.auc <- c(rep(0,M))
-las.test.auc <-c(rep(0,M))
-rid.train.auc <- c(rep(0,M))
-rid.test.auc <-c(rep(0,M))
-rf.train.auc <- c(rep(0,M))
-rf.test.auc <-c(rep(0,M))
+elas.train.error <- c(rep(0,M))
+elas.test.error <-c(rep(0,M))
+las.train.error <- c(rep(0,M))
+las.test.error <-c(rep(0,M))
+rid.train.error <- c(rep(0,M))
+rid.test.error <-c(rep(0,M))
+rf.train.error <- c(rep(0,M))
+rf.test.error <-c(rep(0,M))
 
 for (m in c(1:M)) {
   #randomly sampling rows 
@@ -262,7 +271,7 @@ for (m in c(1:M)) {
   #finding the probability threshold where type1error & type2error  are as close as possible
   min.dif.index <- which.min(abs(df.rid$type1error-df.rid$type2error)) #saving it into index so it can be saved automatically
   min.dif.thrs <- df.rid[min.dif.index,1]
-  rid.train.error[m] <- df.rid[min.dif.index,8]
+  #rid.train.error[m] <- df.rid[min.dif.index,8]
   
   rid.prob.test               =        exp(X.test %*%beta.rid.hat +  beta0.rid.hat  )/(1 + exp(X.test %*% beta.rid.hat +  beta0.rid.hat   ))
   
@@ -450,17 +459,144 @@ for (m in c(1:M)) {
   las.test.auc[m] <- AUC(x=test.FPR, y=test.TPR)
 
   cat('\n','lasso results:','\n','Train:',toString(las.train.auc[m]),
-      '\n','Test:',toString(las.test.auc[m]))
+      '\n','Test:',toString(las.test.auc[m]),'\n')
   
   ######################################################################################  
   ###########################   random forest   ########################################
   ###################################################################################### 
-#  mtry <- tuneRF(train.data[1:64],train.data$class, ntreeTry=500,
-#                 stepFactor=1.5,improve=0.01, trace=TRUE, plot=TRUE)
-#  best.m <- mtry[mtry[, 2] == min(mtry[, 2]), 1]
+#  mtry <- tuneRF(X.train,as.factor(y.train), ntreeTry=1000,                      #
+#                 stepFactor=1.5,improve=0.01, trace=F, plot=F) #tuning 
+#  best.m <- mtry[mtry[, 2] == min(mtry[, 2]), 1]                     #
+  
+  
+  start.time<-Sys.time()
+  rf.model   =     randomForest(X.train,as.factor(y.train), ntree=1000,
+                                importance = TRUE, proximity = TRUE)
+  #  rf.model   =     randomForest(X.train,as.factor(y.train), ntree=500,
+  #                                importance = TRUE, proximity = TRUE)
+  
+  end.time<-Sys.time()
+  rf.time[m]<-rf.time[m]+(end.time-start.time)
   
   
   
+  y.train.probs     =     predict(rf.model, X.train,type='prob')
+  
+  #creating vectors to store loop data for each threshold 
+  tr.thrs                 =       c(0:num_thrs)
+  tr.TPR                  =       c(0:num_thrs)
+  tr.FPR                  =       c(0:num_thrs)
+  tr.type1error           =       c(0:num_thrs)
+  tr.type2error           =       c(0:num_thrs)
+  tr.error                =       c(0:num_thrs)
+  tr.FNR                  =       c(0:num_thrs)
+  tr.FP                   =       c(0:num_thrs)
+  tr.FN                   =       c(0:num_thrs)
+  min.dif.thrs            =       NULL
+  
+  #loop to find the probability threshold where type1error==type2error (or as close as possible)
+  for (i in 0:num_thrs){
+    if (i==0){
+      thrs=0
+    } else {
+      thrs=i/num_thrs
+    }
+    y.hat.train             =        ifelse(y.train.probs[,2] > thrs, 1, 0) #table(y.hat.train, y.train)
+    FP.train                =        sum(y.train[y.hat.train==1] == 0) # false positives = negatives in the data that were predicted as positive
+    TP.train                =        sum(y.hat.train[y.train==1] == 1) # true positives = positives in the data that were predicted as positive
+    FN.train                =        sum(y.train[y.hat.train==0] == 1) #false negatives in the data
+    P.train                 =        sum(y.train==1) # total positives in the data
+    N.train                 =        sum(y.train==0) # total negatives in the data
+    FPR.train               =        FP.train/N.train # false positive rate = type 1 error = 1 - specificity
+    TPR.train               =        TP.train/P.train # true positive rate = 1 - type 2 error = sensitivity
+    typeI.err.train         =        FPR.train
+    typeII.err.train        =        1 - TPR.train
+    
+    tr.thrs[i+1] <- thrs
+    tr.TPR[i+1] <- TPR.train
+    tr.FPR[i+1] <- FPR.train
+    tr.FNR[i+1] <- FN.train/P.train
+    tr.FP[i+1] <- FP.train
+    tr.FN[i+1] <- FN.train
+    tr.error[i+1] <- (FP.train+FN.train)/n.train
+    tr.type1error[i+1]         =       typeI.err.train
+    tr.type2error[i+1]         =       typeII.err.train
+    
+  }
+  
+  #dataframe of all thresholds and errors
+  df.rf=data.frame(threshold=tr.thrs,false_positive_rate=tr.FPR,false_negative_rate=tr.FNR,
+                   false_positive=tr.FP,false_negative=tr.FN,
+                   type1error=tr.type1error,type2error=tr.type2error,error_rate=tr.error
+  )
+  
+  rf_p_train <- predict(rf.model, type="prob")[,2]
+  rf_pr_train <- prediction(rf_p_train, y.train)
+  r_auc_train1 <- performance(rf_pr_train, measure = "auc")@y.values[[1]]
+  
+  rf.train.auc[m] <- r_auc_train1
+  
+  
+  ################################### TEST ##########################################
+  y.test.probs       =     predict(rf.model, X.test,type='prob')
+  
+  #creating vectors to store loop data for each threshold 
+  test.thrs                 =       c(0:num_thrs)
+  test.TPR                  =       c(0:num_thrs)
+  test.FPR                  =       c(0:num_thrs)
+  test.type1error           =       c(0:num_thrs)
+  test.type2error           =       c(0:num_thrs)
+  test.error                =       c(0:num_thrs)
+  test.FNR                  =       c(0:num_thrs)
+  test.FP                   =       c(0:num_thrs)
+  test.FN                   =       c(0:num_thrs)
+  min.dif.thrs            =       NULL
+  
+  
+  #loop to find the probability threshold where type1error==type2error (or as close as possible)
+  for (i in 0:num_thrs){
+    if (i==0){
+      thrs=0
+    } else {
+      thrs=i/num_thrs
+    }
+    y.hat.test             =        ifelse(y.test.probs[,2] > thrs, 1, 0) #table(y.hat.train, y.train)
+    FP.test                =        sum(y.test[y.hat.test==1] == 0) # false positives = negatives in the data that were predicted as positive
+    TP.test                =        sum(y.hat.test[y.test==1] == 1) # true positives = positives in the data that were predicted as positive
+    FN.test                =        sum(y.test[y.hat.test==0] == 1) #false negatives in the data
+    P.test                 =        sum(y.test==1) # total positives in the data
+    N.test                 =        sum(y.test==0) # total negatives in the data
+    FPR.test               =        FP.test/N.test # false positive rate = type 1 error = 1 - specificity
+    TPR.test               =        TP.test/P.test # true positive rate = 1 - type 2 error = sensitivity
+    typeI.err.test         =        FPR.test
+    typeII.err.test        =        1 - TPR.test
+    
+    test.thrs[i+1] <- thrs
+    test.TPR[i+1] <- TPR.test
+    test.FPR[i+1] <- FPR.test
+    test.FNR[i+1] <- FN.test/P.test
+    test.FP[i+1] <- FP.test
+    test.FN[i+1] <- FN.test
+    test.error[i+1] <- (FP.test+FN.test)/n.test
+    test.type1error[i+1]         =       typeI.err.test
+    test.type2error[i+1]         =       typeII.err.test
+    
+  }
+  
+  #dataframe of all thresholds and errors
+  df.test.rf=data.frame(threshold=test.thrs,false_positive_rate=test.FPR,false_negative_rate=test.FNR,
+                        false_positive=test.FP,false_negative=test.FN,
+                        type1error=test.type1error,type2error=test.type2error,error_rate=test.error
+  )
+  
+  rf_p_test <- predict(rf.model, type="prob",newdata = X.test)[,2]
+  rf_pr_test <- prediction(rf_p_test, y.test)
+  r_auc_test1 <- performance(rf_pr_test, measure = "auc")@y.values[[1]] 
+  
+  rf.test.auc[m] <- r_auc_test1
+  
+  cat('\n','random forest results:','\n','Train:',toString(rf.train.auc[m]),
+      '\n','Test:',toString(rf.test.auc[m]),'\n','--------------------------------------------------------------------')
 }
 
 
@@ -480,11 +616,17 @@ colnames(las.train.df)<-c('auc','model','set')
 las.test.df<-data.frame(las.test.auc,c(rep('lasso',M)),c(rep('test',M)))
 colnames(las.test.df)<-c('auc','model','set')
 
+rf.train.df<-data.frame(rf.train.auc,c(rep('random forest',M)),c(rep('train',M)))
+colnames(rf.train.df)<-c('auc','model','set')
+rf.test.df<-data.frame(rf.test.auc,c(rep('random forest',M)),c(rep('test',M)))
+colnames(rf.test.df)<-c('auc','model','set')
+
 
 #merging dataframes 
 auc.df<-rbind(elas.train.df,elas.test.df,
                rid.train.df,rid.test.df,
-               las.train.df,las.test.df)
+               las.train.df,las.test.df,
+               rf.train.df,rf.test.df)
 auc.df$auc<-as.numeric(auc.df$auc)
 
 
@@ -498,3 +640,11 @@ ggplot(auc.df,aes(x=model,y=auc,fill=model))+geom_boxplot()+
 elas_plot<-plot(elas.cv.fit)
 rid_plot<-plot(rid.cv.fit)
 las_plot<-plot(las.cv.fit)
+
+cat('\n','elastic net cv time',toString(elas.cv.time[50]),'\n',
+    'elastic net time',toString(elas.time[50]),'\n',
+    'ridge cv time',toString(rid.cv.time[50]),'\n',
+    'ridge net  time',toString(rid.time[50]),'\n',
+    'lasso net cv time',toString(las.cv.time[50]),'\n',
+    'lasso net  time',toString(las.time[50]),'\n',
+    'random forest time',toString(rf.time[50]),'\n')
