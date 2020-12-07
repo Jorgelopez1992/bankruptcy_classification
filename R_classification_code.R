@@ -712,16 +712,19 @@ features<-c('net profit / total assets',
   'total costs /total sales','long-term liabilities / equity','sales / inventory','sales / receivables',
   '(short-term liabilities *365) / sales','sales / short-term liabilities','sales / fixed assets')
 
-betas.df<-data.frame(elas.betas,las.betas,rid.betas,rf.betas,features,stringsAsFactors=FALSE)
+#features<-c(1:64)
+
+betas.df<-data.frame(elas.betas,las.betas,rid.betas,rf.betas,features,stringsAsFactors=T)
 
 ordered.df<-betas.df%>%arrange(desc(abs(betas.df$elas.betas)))
 
 elas.betas <- ordered.df$elas.betas
 las.betas <- ordered.df$las.betas
 rid.betas <- ordered.df$rid.betas
-rf.betas <- ordered.df$rf.betas
+rf.betas <- abs(ordered.df$rf.betas)
 features <- ordered.df$features
-colors <- rep(ifelse(elas.betas>1,1,0),4)
+colors <- rep(ifelse(elas.betas>0,'positive','negative'),4)
+test_colors <- rep(ifelse(elas.betas>0,'skyblue2','indianred2'),4)
 
 Betas <- c(elas.betas,las.betas,rid.betas,rf.betas)
 Features <- c(rep(features,4))
@@ -731,12 +734,20 @@ coeffs <- data.frame(Betas,Models,Features,colors)
 
 colnames(coeffs)<-c('Coefficient','Model','Feature','Colors')
 
+coeffs$Model<- factor(coeffs$Model, levels=c('Elastic Net','Lasso','Ridge','Random Forest'))
+
 ggplot(coeffs , aes(x = reorder(Feature,-abs(rep(elas.betas,4))), y=Coefficient,fill=as.factor(Colors))) +
-  geom_bar(stat = "identity", colour="black")+facet_grid(Model~.)+theme_minimal()+
-  theme(axis.title.x=element_blank(),legend.position = "none",axis.text.x =element_blank())
+  geom_bar(stat = "identity", colour="black")+facet_grid(Model~.,scales='free_y')+theme_minimal()+
+  labs(fill='Elastic Net Coefficient')+
+  theme(legend.position=c(0.85,0.95),legend.title = element_text(size=6),legend.text = element_text(size=6),
+        legend.key.size = unit(0.3,'cm'),legend.background = element_rect(fill='white'),
+        axis.text.x =element_text(angle = 45,colour = test_colors))+xlab('Attribute')+
+  scale_color_manual(values=c('positive','negative'))
+
+  theme(axis.title.x=element_blank(),legend.position = "none",axis.text.x =element_text(angle = 45,colour = test_colors))
 
 
-#### COEFFICIENT PLOTS #######
+#### COEFFICIENT PLOTS SECOND#######
 p1 <-ggplot(coeffs%>%filter(Model=='Elastic Net'),
        aes(x = reorder(Feature,-abs(elas.betas)), y=Coefficient,fill=as.factor(Colors)))+
          geom_bar(stat = "identity", fill='white', colour="black")+theme_minimal()+ylab('Elastic Net')+
@@ -756,7 +767,7 @@ p3 <-ggplot(coeffs%>%filter(Model=='Ridge'),
 p4 <-ggplot(coeffs%>%filter(Model=='Random Forest'),
        aes(x = reorder(Feature,-abs(elas.betas)), y=Coefficient,fill=as.factor(Colors)))+
   geom_bar(stat = "identity", fill='white', colour="black")+theme_minimal()+ylab('Random Forest')+
-  theme(axis.title.x=element_blank(),legend.position = "none",axis.text.x =element_blank())
+  theme(axis.title.x=element_blank(),legend.position = "none",axis.text.x =element_text(angle = 90))
 
 grid.arrange(p1, p2,p3,p4, ncol = 1)
 
